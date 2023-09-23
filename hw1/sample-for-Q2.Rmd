@@ -1,0 +1,124 @@
+---
+title: "sample-for-Q2"
+author: "Jiaxin Shi"
+date: '2023-09-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Sample for HW1.Q2 (Original: STAT579, HW5.Q2)
+!! This is just a sample from my previous homework, I cannot guarantee the process and result is 100% correct (Because the past assignment is closed and I cannot assess to the solution). Please treat this sample just as a reference for svd processing and image presentation.
+
+The United States Postal Service has had a long-term project to automating the recognition of handwritten digits for zip codes. The file `ziptrain.dat` has data on different numbers of specimens for each digit. Each observation is in the form of a 256-dimensional vector of pixel intensities. These form a 16x16 image of pixel intensities for each digit. Each digit is determined to be a specimen of the actual digit given in the file `zipdigit.dat`. The objective is to clean up the dataset to further distinguish one digit from the other.
+
+
+### question 2-a
+Read in the dataset as a vector. This dataset has 2000 rows and 256 columns. Convert and store the dataset as a three-dimensional array of dimensions $16 \times 16 \times 2000$. [5 points]
+```{r}
+# data
+dataset <- read.table('ziptrain.dat')
+# index
+zip_digit = unlist(read.table('zipdigit.dat'))
+
+zip_img <- data.matrix(dataset)
+dim(zip_img) <- c(2000,16,16)
+```
+
+
+### question 2-b
+Our objective is to image all the 2000 pictures in a $40 \times 50$ display. We will hasten this display process by setting up the stage for using apply.
+
+i. If we image the second record, we note that without any changes, the image mirrors the digit “5”. Fix these by reversing the appropriate dimension of the array. Also note that the white space around the axes is wasted space and should be removed. To substantially reduce the white space, consider `par(mar = rep(0.05, 4))`. Further, the axes conveys no information so consider its elimination, using `axes = F` in the call to the `image()` function. Finally, we may as well use a gray scale here so consider using `col = gray(31:0/31)` in the image argument. Display the second record as an image, after addressing all these issues. [5 points]
+```{r}
+par(mar = rep(0.05,4))
+image(zip_img[2,,16:1], axes = F, col = gray(31:0/31))
+```
+
+ii. Using `par(mfrow = c(40,50))` and a total image size of $5.2^{''} \times 6.5^{''}$, image all the 2000 digits using apply and the experience you gained in part i. above. [10 points]
+```{r}
+par(mar = rep(0.05,4), mfrow = c(40,50))
+apply(zip_img, 1, function(x) {image(x[,16:1], axes = F, col = gray(31:0/31))})
+```
+
+
+### question 2-c
+We now compute the mean and standard deviation images of the digits. To do so, we convert the array back to a matrix, and calculate the means for the ten digits, convert back to a three-dimensional array. Do exactly that. Also, compute and display the standard deviation images in exactly a similar way. [20 points]
+```{r}
+# array -> matrix
+dim(zip_img) <- c(2000, 256)
+
+# general function
+summary_image_by = function(func){
+  summary_img = array(dim = c(10, 256))
+  for (i in 0:9){
+  summary_img[i+1,] <- apply(zip_img[which(zip_digit == i),], 2, func)
+  }
+  dim(summary_img) <- c(10,16,16)
+  summary_img
+}
+
+draw_img = function(img, nrow = 3, ncol = 4){
+  par(mar = rep(0.05,4), mfrow = c(nrow,ncol))
+  apply(img, 1, function(x) {image(x[,16:1], axes = F, col = gray(31:0/31))})
+
+}
+
+# means
+mean_img = summary_image_by(mean)
+draw_img(mean_img)
+
+ # sd
+sd_img = summary_image_by(sd)
+draw_img(sd_img)
+
+```
+
+
+### question 2-d
+Our final act will involve cleaning up the dataset. To do so, remove the mean digit effect from each record. Then, perform a singular value decomposition on the $2000 \times 256$ matrix of deviations Y (that is the records with the corresponding digit mean effect removed). (Recall that the SVD is $\mathbf{Y} = \mathbf{UDV^{'}}$ and is obtained via the `svd()` function in R.) Replace $\mathbf{D}$ with a diagonal matrix $mathbf{D}_k$ of the first k eigenvalues of $\mathbf{D}$ and the remainder as zero. Then let $\mathbf{Y}_k = \mathbf{UD_kV^{'}}$. Add back the mean and display the resulting images of all the digits for $k = 25,50,75$ in the same manner as (b)ii. Comment on the displays. 1 [30 points]
+```{r}
+dim(mean_img) <- c(10, 256)
+cleaned_zip_img = array(dim = c(2000, 256))
+
+# remove mean effect
+mean_effect = array(dim = c(2000, 256))
+for (i in 0:9){
+  nrows = length(which(zip_digit == i))
+  mean_effect[which(zip_digit == i),] <- matrix(rep(mean_img[i+1,], nrows), nrow = nrows, byrow = T)
+}
+
+cleaned_zip_img = zip_img - mean_effect
+
+# svd
+svd_res = svd(cleaned_zip_img)
+
+# general function
+replace_d = function(d,k){
+  d_k = diag(0, nrow = length(d))
+  d_k[1:k] <- d[1:k]
+  d_k
+}
+
+renewed_img_of = function(d_k){
+  decomp_img = svd_res$u %*% d_k %*% t(svd_res$v)
+  renewed_img = decomp_img + mean_effect
+  dim(renewed_img) <- c(2000, 16, 16)
+  renewed_img
+}
+
+# display
+display_by = function(k){
+  d_k = replace_d(svd_res$d, k)
+  new_img = renewed_img_of(d_k)
+  draw_img(new_img, 40, 50)
+}
+
+display_by(25)
+display_by(50)
+display_by(75)
+```
+
+With k getting bigger, the digits become harder to be recognized. 
