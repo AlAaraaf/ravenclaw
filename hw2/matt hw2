@@ -1,0 +1,201 @@
+## I couldn't get a linear svm to finish training on my 64x64 pixel data set
+## I also couldn't get a LDA to finish training on my 64x64 pixel data set, so hopefully one of you could get those working on a 16x16 pixel reduced set
+## Best model for 2 class: 92% validation accuracy, 2 layer model, 128 nodes each, no dropout, sgd optimizer with 0.0001 learning rate
+## Best model for 3 class: 80% validation accuracy, 2 layer model, 64 nodes each, 0.5 dropout, sgd optimizer with 0.0001 learning rate
+
+
+#### CODE ####
+## create function to convert RGB to greyscale
+greyscale <- function(RGB) {
+  if (length(dim(RGB)) > 2) {
+    RGB[,,1]*0.3 + RGB[,,2]*0.59 + RGB[,,3]*0.11
+  } else {
+    RGB
+  }
+}
+
+## import cat and dog training sets, convert to grayscale, concatenate with radon transform
+train <- list()
+train2 <- list()
+# train3 <- list()
+for (i in 1:length(train_cats)) {
+  train[[i]] <- readJPEG(paste0(wd, '/train_reduced/cat2/', train_cats[i])) |> as.array() |> greyscale()
+  # train[[i]] <- radon(oData = train[[i]])$rData
+  rm(i)
+}
+for (i in 1:length(train_dogs)) {
+  train2[[i]] <- readJPEG(paste0(wd, '/train_reduced/dog2/', train_dogs[i])) |> as.array() |> greyscale()
+  # train2[[i]] <- radon(oData = train2[[i]])$rData
+  rm(i)
+}
+# for (i in 1:length(train_wild)) {
+#   train3[[i]] <- readJPEG(paste0(wd, '/train_reduced/wild2/', train_wild[i])) |> as.array() |> greyscale()
+#   # train3[[i]] <- radon(oData = train3[[i]])$rData
+#   rm(i)
+# }
+
+## import cat and dog test sets, convert to grayscale, concatenate w/ radon transform
+test <- list()
+test2 <- list()
+# test3 <- list()
+for (i in 1:length(test_cats)) {
+  test[[i]] <- readJPEG(paste0(wd, '/val_reduced/cat2/', test_cats[i])) |> as.array() |> greyscale()
+  # test[[i]] <- radon(oData = test[[i]])$rData
+  rm(i)
+}
+for (i in 1:length(test_dogs)) {
+  test2[[i]] <- readJPEG(paste0(wd, '/val_reduced/dog2/', test_dogs[i])) |> as.array() |> greyscale()
+  # test2[[i]] <- radon(oData = test2[[i]])$rData
+  rm(i)
+}
+# for (i in 1:length(test_wild)) {
+#   test3[[i]] <- readJPEG(paste0(wd, '/val_reduced/wild2/', test_wild[i])) |> as.array() |> greyscale()
+#   # test3[[i]] <- radon(oData = test3[[i]])$rData
+#   rm(i)
+# }
+
+## view a mono image of a cat/dog
+train[[1]] |> as.matrix() |> image(useRaster = TRUE)
+train2[[1]] |> as.matrix() |> image(useRaster = TRUE)
+# train3[[1]] |> as.matrix() |> image(useRaster = TRUE)
+
+## combine cat/dog lists into one master list, create categorical labels for classification (0 = cat, 1 = dog)
+train <- c(train, train2); rm(train2)
+test <- c(test, test2); rm(test2)
+names(train) <- c(rep(0, length(train_cats)), rep(1, length(train_dogs)))
+names(test) <- c(rep(0, length(test_cats)), rep(1, length(test_dogs)))
+# train <- c(train, train2, train3); rm(train2, train3)
+# test <- c(test, test2, test3); rm(test2, test3)
+# names(train) <- c(rep(0, length(train_cats)), rep(1, length(train_dogs)), rep(2, length(train_wild)))
+# names(test) <- c(rep(0, length(test_cats)), rep(1, length(test_dogs)), rep(2, length(test_wild)))
+
+## shuffle the order of cats/dogs
+shuffle <- sample(length(train))
+train <- train[shuffle]
+shuffle <- sample(length(test))
+test <- test[shuffle]
+rm(shuffle)
+
+## reformat labels to match categorical keras formatting
+train_y <- names(train) |> to_categorical(num_classes = 2)
+test_y <- names(test) |> to_categorical(num_classes = 2)
+
+## convert lists to arrays
+temp <- array(dim = c(length(train), dim(train[[1]])[1], dim(train[[1]])[2]))
+for (i in 1:length(train)) {
+  temp[i,,] <- train[[i]]
+  rm(i)
+}
+train <- temp
+temp <- array(dim = c(length(test), dim(test[[1]])[1], dim(test[[1]])[2]))
+for (i in 1:length(test)) {
+  temp[i,,] <- test[[i]]
+  rm(i)
+}
+test <- temp
+rm(temp)
+
+## establish model structure
+model <- keras_model_sequential() |>
+  layer_flatten(input_shape = c(dim(train)[2], dim(train)[3], 1)) |>
+  layer_dense(units = 128, activation = 'relu') |>
+  layer_batch_normalization() |> 
+  
+  layer_dense(units = 128, activation = 'relu') |>
+  layer_batch_normalization() |> 
+  
+  # layer_dropout(0.5) |>
+  
+  layer_dense(units = dim(train_y)[2], activation = 'softmax')
+summary(model)
+
+## compile
+model |> compile(
+  optimizer = optimizer_sgd(learning_rate = 0.0001),
+  loss = 'categorical_crossentropy',
+  metrics = c('accuracy')
+)
+
+## fit model
+history <- model |> fit(
+  x = train,
+  y = train_y,
+  epochs = 1000,
+  batch_size = 32,
+  validation_split = 0.2,
+  verbose = 2,
+  callbacks = list(
+    callback_early_stopping(
+      monitor = "val_loss",
+      patience = 50,
+      restore_best_weights = TRUE))
+)
+
+## evaluate accuracy on test set
+model |> evaluate(test, test_y, verbose = 0)
+
+
+####################
+####################
+#### results format:
+  # n classes, n layer, n nodes layer 1 / n nodes layer 2 / n nodes layer 3 / etc (dropout), optimizer + learning rate, dimensions of input data
+
+#### results for 2 class
+  # greyscale 64x64 images fed into two layer network, 128 nodes per layer, 0.0001 learning rate sgd optimizer performed best, 0% dropout
+
+  # 2 class, 4 layer, 64 / 64 / 32 / 32 (0.5), sgd 0.0001, dim 64x64
+    # 0.87 validation accuracy
+
+  # 2 class, 4 layer, 64 / 64 / 32 / 32 (0.5), sgd 0.0001, radon dim 181x91
+    # 0.87 validation accuracy
+
+  # 2 class, 2 layers, 64 / 64 (0.5), sgd 0.0001, dim 64x64
+    # 0.89 validation accuracy
+
+  # 2 class, 8 layers 64 / 64 / rest 32 (0.5), sgd 0.0001, dim 64x64
+    # 0.88 validation accuracy
+
+  # 2 class, 12 layers, 64 / 64 / rest 32 (0.5), sgd 0.0001, dim 64x64
+    # 0.87 validation accuracy
+
+  # 2 class, 2 layers, 64 / 64 (0.5), sgd 0.05 dim 64x64
+    # 0.87 validation accuracy
+
+  # 2 class, 2 layers 128 / 128 (0.5), sgd 0.0001 dim 64x64
+    # 0.90 validation accuracy
+
+  # 2 class, 2 layers 128 / 128 (no dropout), sgd 0.0001 dim 64x64
+    # 0.92 validation accuracy
+
+  # 2 class, 2 layers 256 / 256 (0.5), sgd 0.0001 dim 64x64
+    # 0.898 validation accuracy
+
+  # 2 class, 2 layer 32 / 32 (0.5), sgd 0.0001 dim 64x64
+    # 0.88 validation accuracy
+
+#### results for 3 class
+  # transformed greyscale performs similarly to radon transformed, 2 layers of 64 nodes is the best model thus far: simple and as accurate as any other tested
+  
+  # 3 class, 4 layers, 64 / 64 / 32 / 32 (0.5), sgd 0.0001, dim 64x64
+    # 0.80 validation accuracy
+
+  # 3 class, 4 layers, 64 / 64 / 32 / 32 (0.5), sgd 0.0001, radon dim 181x91
+    # 0.79 validation accuracy
+
+  # 3 class, 2 layers, 64 / 64 (0.5), sgd 0.0001, dim 64x64
+    # 0.80 validation accuracy
+
+  # 3 class, 8 layers 64 / 64 / rest 32 (0.5), sgd 0.0001, dim 64x64
+    # 0.80 validation accuracy
+
+  # 3 class, 12 layers, 64 / 64 / rest 32 (0.5), sgd 0.0001, dim 64x64
+    # 0.76 validation accuracy
+
+  # 3 class, 4 layers, 64 / 64 / 32 / 32 (0.5), sgd 0.05 dim 64x64
+    # 0.80 validation accuracy
+  
+  # 3 class, 4 layers 128 / 128 / 64 / 64 (0.5), sgd 0.0001 dim 64x64
+    # 0.78 validation accuracy
+
+  # 3 class, 4 layer 32 / 32 / 16 / 16 (0.5), sgd 0.0001 dim 64x64
+    # 0.78 validation accuracy
