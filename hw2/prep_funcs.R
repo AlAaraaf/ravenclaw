@@ -68,8 +68,7 @@ construct_fc_model <- function(nlayers, unitlist,
 
   for (i in 1:nlayers){
     model %>% 
-      layer_dense(units = unitlist[i], activation = 'relu') %>% 
-      layer_batch_normalization()
+      layer_dense(units = unitlist[i], activation = 'relu')
   }
 
   model %>%
