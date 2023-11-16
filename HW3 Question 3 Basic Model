@@ -1,0 +1,153 @@
+#### README ####
+  # This is an unfinished version of the code for HW3 Question3. This code only segments one class at a time, either lung or airway.
+    # I will upload a finished code w/ accuracies
+    # I am posting this early version in case it helps with the Exam
+  # Based off this blog post: https://forloopsandpiepkicks.wordpress.com/2021/04/09/image-segmentation-in-r-automatic-background-removal-like-in-a-zoom-conference/
+  # The majority of this document is me reading and formatting data 
+    # ydim and xdim = [n greyscale images, x resolution, y resolution]
+      # 128x128 is a good balance between sufficient resolution and resonable training time
+      # resize_matrix() from package rayshader can be used to resize a [x, y, z] matrix into any size without having to export a new image like in magick
+  # Steps for formatting data and training model for image segmentation:
+      # 1)  Import 512 * 512 * N images (I already resized to 256*256 in another document)
+      # 2)  Convert RGB to greyscale (already done in another document; RGB is meaningless for these images)
+      # 3)  Resize to desired resolution (anything above 64*64)
+      # 4)  Randomly sample a couple hundred images to train on (I use 100 images from each of the 26 files)
+      # 5)  Creating training / test split (0.8, 0.2)
+      # 6)  Load model architecture (I use U-Net, loaded from package imageseg)
+      # 7)  Compile model with appropriate loss (Dice Loss for segmentation, binary crossentropy doesn't work for pixel-wise accuracy)
+        # Dice loss function imported from package platypus
+      # 8)  Train model using U-Net architecture (10 epochs for 128*128, 20 epochs for 64*64)
+      # 9)  Evaluate model using Dice Coefficient (1 = 100% pixel accuracy)
+      # 10) Plot true vs predicted segmentation
+
+
+#### Libraries ####
+library(rayshader) # resize_matrix()
+library(raster) # as.raster()
+library(caret) # createDataPartition()
+library(keras); keras_model_sequential() # this just initializes keras right at the start
+library(deepviz) # plot_model() // devtools::install_github("andrie/deepviz")
+library(imageseg) # u_net() // remotes::install_github("jniedballa/imageseg")
+library(platypus) # loss_dice(), metric_dice_coeff() // remotes::install_github("maju116/platypus")
+
+
+#### Settings ####
+epochs <- 10 # 0 is sufficient for 128x128, use 20 epochs for 64x64
+res <- 128 # default to 256 (native image size), can be reduced to train on lower resolution images
+sample <- 100 # number of images to sample along z-axis 
+images <- 26 # number of images to train on // range = [1, 26]
+
+
+#### Import resized data (256x256; list of 26 lists) ####
+setwd('C:/Users/Matt/Desktop/STAT 590B/hw3/aeropath resized')
+x <- readRDS('x_resize.rds')
+y <- readRDS('y_lung_resize.rds')
+
+
+## randomly samples N images across z axis from the original 'stack' of images from scan
+dice <- function(image_x, image_y, sample, res) {
+  output <- list()
+  temp_x <- array(dim = c(sample, res, res))
+  temp_y <- array(dim = c(sample, res, res))
+  
+  set <- sample(1:length(image_x), sample, replace = TRUE)
+  for (i in 1:sample) {
+    slice <- set[sample]
+    candidate_x <- image_x[[slice]]
+    candidate_y <- image_y[[slice]]
+    if (nrow(candidate_x) != res | ncol(candidate_x) != res) {
+      candidate_x <- candidate_x |> resize_matrix(width = res, height = res, method = 'bilinear')
+      candidate_y <- candidate_y |> resize_matrix(width = res, height = res, method = 'bilinear')
+    } 
+    temp_x[i,,] <- candidate_x
+    temp_y[i,,] <- candidate_y
+  }
+  output[['x']] <- temp_x
+  output[['y']] <- temp_y
+  return(output)
+}
+
+## run dice() function through entire set of 26 images
+set.seed(777)
+dice_list <- list()
+pb <- txtProgressBar(min = 0, max = images, initial = 0, style = 3)
+for (pic in 1:images) {
+  dice_list[[pic]] <- dice(
+    image_x = x[[pic]],
+    image_y = y[[pic]],
+    sample = sample,
+    res = res
+  )
+  setTxtProgressBar(pb, pic)
+}; rm(pb, pic)
+
+## remove old x and y formats to free up memory
+rm(x, y)
+
+## convert dice list to x and y arrays
+x <- array(dim = c(length(dice_list)*sample, res, res))
+y <- array(dim = c(length(dice_list)*sample, res, res)) # last dimension of y is binary class annotation
+for (i in 1:length(dice_list)) {
+  x[(((i-1)*sample)+1):(i*sample),,] <- dice_list[[i]][['x']]
+  y[(((i-1)*sample)+1):(i*sample),,] <- dice_list[[i]][['y']]
+  rm(i)
+}
+
+## convert [y > 0] <- 1 (to binary classification; current y ranges from 0 -> 0.3)
+y[y > 0] <- 1
+x[50,,] |> as.raster() |> plot()
+y[50,,] |> as.raster() |> plot()
+
+
+## shuffle order of images
+set.seed(777)
+shuffle <- sample(1:dim(x)[1])
+x <- x[shuffle,,]
+y <- y[shuffle,,]
+rm(shuffle)
+
+## split into training and test sets
+split <- createDataPartition(1:dim(x)[1], p = 0.2) |> unlist()
+x_train <- x[-c(split),,]
+y_train <- y[-c(split),,]
+x_test <- x[split,,]
+y_test <- y[split,,]
+rm(split)
+
+
+#### U-Net Architecture ####
+model <- imageseg::u_net(
+  res,
+  res,
+  grayscale = TRUE,
+  blocks = 4,
+  n_class = 1
+)
+summary(model)
+model |> deepviz::plot_model()
+
+## compile
+model |> compile(
+  optimizer = optimizer_adam(learning_rate = 0.001),
+  loss = loss_dice(),
+  metrics = metric_dice_coeff()
+)
+
+## train
+history <- model |> fit(
+  x = x_train,
+  y = y_train,
+  batch_size = 32,
+  epochs = epochs,
+  validation_split = 0.2,
+  callbacks = list(
+    callback_early_stopping(
+      monitor = "val_loss",
+      patience = round(epochs/2),
+      restore_best_weights = TRUE))
+)
+
+evaluate(model, x_test, y_test)
+x_test[100,,] |> as.raster() |> plot()
+y_test[100,,] |> as.raster() |> plot()
+predict(model, x_test)[100,,,] |> as.raster() |> plot()
