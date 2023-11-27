@@ -1,13 +1,11 @@
 ################ Q1 ###############
 
-#### Libraries ####
-library(magick) # image_read(), image_scale(), image_write()
-library(png) # readPNG()
-library(caret) # createDataPartition()
+# Load the necessary libraries
 library(keras)
 library(reticulate)
 library(tensorflow)
 library(tiff)
+library(magick)
 library(imager)
 library(jpeg)
 library(tidyverse)
@@ -17,19 +15,28 @@ image_size <- 1000
 splice_size <- 150
 splice_number <- 10
 
+
+# Define your data directory
+data_dir <- "devnagari-bangla/"
+class <- c("bangla", "devnagari")
+new_dir <- "resize/"
+
+
 ## prepare training sets (here I resize to 1000x1000 to make resolution equal)
-resize <- function(size, wd) {
-  setwd(wd)
-  for (i in 1:length(list.files())) {
-    setwd(wd)
-    temp <- image_read(list.files()[i])
-    temp <- image_scale(temp, paste0(size, '!')) # ! = ignore aspect ratio
-    setwd(paste0(wd, '_reduced'))
-    image_write(image = temp, path = paste0(i, '.png'), format = 'PNG')
+# Define a function to resize an image and save it
+
+for (current_class in class){
+  current_folder = paste(data_dir, paste(current_class,'/',sep = ''),sep = '')
+  filelist = list.files(current_folder)
+  for (current_file in filelist){
+    input_dir = paste(current_folder, current_file, sep = '')
+    img = image_read(input_dir)
+    simg = image_scale(img,"1000x1000!")
+    file_name <- basename(file_path_sans_ext(current_file, compression = TRUE))
+    output_path <- file.path(paste(new_dir, current_class,sep = ''), file_name)
+    image_write(simg, path = paste(output_path, ".", "png", sep = ""),format = 'PNG')
   }
 }
-resize(size = paste0(image_size, 'x', image_size), wd = 'C:/Users/Matt/Desktop/STAT 590B/hw3/bangla')
-resize(size = paste0(image_size, 'x', image_size), wd = 'C:/Users/Matt/Desktop/STAT 590B/hw3/devnagari')
 
 ## randomly sample n x n x 1 images from the original image
 splice <- function(image, size) {
@@ -55,12 +62,12 @@ splice <- function(image, size) {
 }
 
 ## import bangla data
-setwd('C:/Users/Matt/Desktop/STAT 590B/hw3/bangla_reduced')
-pb <- txtProgressBar(min = 0, max = length(list.files()), initial = 0, style = 3) 
-data_ban <- array(dim = c(length(list.files())*splice_number, splice_size, splice_size, 1))
-for (n in 1:length(list.files())) {
+filepath_bangla <- list.files(file.path("resize", "bangla"), full.names = TRUE)
+pb <- txtProgressBar(min = 0, max = length(filepath_bangla), initial = 0, style = 3) 
+data_ban <- array(dim = c(length(filepath_bangla)*splice_number, splice_size, splice_size, 1))
+for (n in 1:length(filepath_bangla)) {
   for (i in 1:splice_number) {
-    data_ban[(n-1)*splice_number+i,,,] <- list.files()[i] |> readPNG() |> splice(size = 150) |> round()
+    data_ban[(n-1)*splice_number+i,,,] <- filepath_bangla[i] |> readPNG() |> splice(size = 150) |> round()
     rm(i)
   }
   setTxtProgressBar(pb, n)
@@ -68,47 +75,51 @@ for (n in 1:length(list.files())) {
 }
 
 ## import devnagari data
-setwd('C:/Users/Matt/Desktop/STAT 590B/hw3/devnagari_reduced')
-pb <- txtProgressBar(min = 0, max = length(list.files()), initial = 0, style = 3) 
-data_dev <- array(dim = c(length(list.files())*splice_number, splice_size, splice_size, 1))
-for (n in 1:length(list.files())) {
+filepath_devnagari <- list.files(file.path("resize", "devnagari"), full.names = TRUE)
+pb <- txtProgressBar(min = 0, max = length(filepath_devnagari), initial = 0, style = 3) 
+data_dev <- array(dim = c(length(filepath_devnagari)*splice_number, splice_size, splice_size, 1))
+for (n in 1:length(filepath_devnagari)) {
   for (i in 1:splice_number) {
-    data_dev[(n-1)*splice_number+i,,,] <- list.files()[i] |> readPNG() |> splice(size = 150) |> round()
+    data_dev[(n-1)*splice_number+i,,,] <- filepath_devnagari[i] |> readPNG() |> splice(size = 150) |> round()
     rm(i)
   }
   setTxtProgressBar(pb, n)
   rm(n)
 }
 
-## randomly select 10 images for testing (5 of each)
+## randomly select 0.1percent images for testing (5 of each)
 set.seed(777)
-test <- array(dim = c(10*splice_number, dim(data_ban)[-1]))
-split <- sample(1:dim(data_ban)[1], 10*splice_number/2)
-test[1:(10*splice_number/2),,,] <- data_ban[split,,,]
-data_ban <- data_ban[-c(split),,,]
-split <- sample(1:dim(data_dev)[1], 10*splice_number/2)
-test[(10*splice_number/2 + 1):(10*splice_number),,,] <- data_dev[split,,,]
-data_dev <- data_dev[-c(split),,,]
+numbangla <- 0.1*length(filepath_bangla)*splice_number
+numdevnagari <- 0.1*length(filepath_devnagari)*splice_number
+test <- array(dim = c(numbangla+numdevnagari, dim(data_ban)[-1]))
+split <- sample(1:dim(data_ban)[1], numbangla)
+test[1:numbangla,,,] <- data_ban[split,,,]
+data_ban_train <- array(dim = c(dim(data_ban)[1]-length(split), dim(data_ban)[-1]))
+data_ban_train[1:dim(data_ban_train)[1],,,] <- data_ban[-split,,,]
+split <- sample(1:dim(data_dev)[1], numdevnagari)
+test[(numbangla+ 1):(numbangla+numdevnagari),,,] <- data_dev[split,,,]
+data_dev_train <- array(dim = c(dim(data_dev)[1]-length(split), dim(data_dev)[-1]))
+data_dev_train[1:dim(data_dev_train)[1],,,]  <- data_dev[-c(split),,,]
 rm(split)
 
 ## combine data sets into training set
 train <- array(dim = c(
-  dim(data_ban)[1] + dim(data_dev)[1],
-  dim(data_ban)[-1],
-  1))
-train[1:(dim(data_ban)[1]),,,] <- data_ban
-train[(dim(data_ban)[1]+1):(dim(train)[1]),,,] <- data_dev
+  dim(data_ban_train)[1] + dim(data_dev_train)[1],
+  dim(data_ban_train)[-1]))
+train[1:(dim(data_ban_train)[1]),,,] <- data_ban_train
+train[(dim(data_ban_train)[1]+1):(dim(train)[1]),,,] <- data_dev_train
 
 ## create labels
-train_y <- c(rep(0, dim(data_ban)[1]), rep(1, dim(data_dev)[1]))
-test_y <- c(rep(0, 10*splice_number/2), rep(1, 10*splice_number/2)) |> to_categorical()
+train_y <- c(rep(0, dim(data_ban_train)[1]), rep(1, dim(data_dev_train)[1]))
+test_y <- c(rep(0, numbangla), rep(1, numdevnagari)) |> to_categorical()
 
 ## shuffle training set
 set.seed(777)
 shuffle <- sample(dim(train)[1])
 train_y <- train_y[shuffle] |> to_categorical()
-train <- train[shuffle,,,] 
+train[1:dim(train)[1],,,] <- train[shuffle,,,] 
 rm(shuffle)
+
 
 ########### Model Architecture
 build_convnet <- function(filters_list, kernel_size = c(3, 3), pool_size = c(2, 2),
@@ -151,19 +162,20 @@ build_convnet <- function(filters_list, kernel_size = c(3, 3), pool_size = c(2, 
     hidden <- layer_activation_relu()(hidden)
   } else hidden <- layer_dense(units = 32, activation = "relu")(hidden)
   
-  output <- layer_dense(units = output_class, activation = "sigmoid")(hidden)
+  output <- layer_dense(units = output_class, activation = "softmax")(hidden)
   model <- keras_model(inputs = input, outputs = output)
   if (printmodel) summary(model, show_trainable = T)
   
   learning_rate <- learning_rate_schedule_exponential_decay(initial_learning_rate,
                                                             decay_steps = 5, decay_rate = 0.9, staircase = T)
   model %>% compile(
-    loss = loss_binary_crossentropy(),
+    loss = loss_categorical_crossentropy(),
     optimizer = optimizer_adam(learning_rate = learning_rate),
     metrics = list("acc")
   )
   model
 }
+
 
 ##################################
 ## run for 1(a)
@@ -179,7 +191,7 @@ for (i in 1:nrow(pars)) {
   filters = pars$filter[[i]]
   
   model <- build_convnet(filters_list = filters, kernel_size = c(3, 3), pool_size = c(2, 2),
-                         input_shape = dim(dataset$train$data)[-1], output_class = 1,
+                         input_shape = dim(train)[-1], output_class = 2,
                          dropout = 0, initial_learning_rate = lr_initial, 
                          rotation = F, flipping = F, batch_normalization = F, 
                          separable_conv = F, resid_connection = F, 
@@ -188,15 +200,15 @@ for (i in 1:nrow(pars)) {
   
   callbacks <- callback_early_stopping(patience = 10, restore_best_weights = T)
   history <- model %>%
-    fit(dataset$train$data, dataset$train$class, epochs = 50, batch_size = 32, verbose = 1,
+    fit(train, train_y, epochs = 50, batch_size = 32, verbose = 1,
         callbacks = callbacks, validation_split = .5)
-  results <- model %>% evaluate(dataset$test$data, dataset$test$class)
+  results <- model %>% evaluate(test, test_y)
   names(results) <- c("test_loss", "test_acc")
   res <- rbind(res, cbind(last(data.frame(history$metrics)),t(results)))
 }
 
-cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
-  write.csv("result11.csv")
+cbind(pars, res)
+
 
 ##################################
 ## run for 1(b)_rotation
@@ -210,7 +222,7 @@ for (i in 1:nrow(pars)) {
   lr_initial = pars$lr_initial[i]
   filters = pars$filter[[i]] 
   model <- build_convnet(filters_list = filters, kernel_size = c(3, 3), pool_size = c(2, 2),
-                         input_shape = dim(dataset$train$data)[-1], output_class = 1,
+                         input_shape = dim(train)[-1], output_class = 2,
                          dropout = 0, initial_learning_rate = lr_initial, 
                          rotation = T, flipping = F, batch_normalization = F, 
                          separable_conv = F, resid_connection = F, 
@@ -219,15 +231,14 @@ for (i in 1:nrow(pars)) {
   
   callbacks <- callback_early_stopping(patience = 10, restore_best_weights = T)
   history <- model %>%
-    fit(dataset$train$data, dataset$train$class, epochs = 50, batch_size = 32, verbose = 1,
+    fit(train, train_y, epochs = 50, batch_size = 32, verbose = 1,
         callbacks = callbacks, validation_split = .5)
-  results <- model %>% evaluate(dataset$test$data, dataset$test$class)
+  results <- model %>% evaluate(test, test_y)
   names(results) <- c("test_loss", "test_acc")
   res <- rbind(res, cbind(last(data.frame(history$metrics)),t(results)))
 }
 
-cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
-  write.csv("result12_r.csv")
+cbind(pars, res) 
 
 ##################################
 ## run for 1(b)_flipping
@@ -241,7 +252,7 @@ for (i in 1:nrow(pars)) {
   lr_initial = pars$lr_initial[i]
   filters = pars$filter[[i]] 
   model <- build_convnet(filters_list = filters, kernel_size = c(3, 3), pool_size = c(2, 2),
-                         input_shape = dim(dataset$train$data)[-1], output_class = 1,
+                         input_shape = dim(train)[-1], output_class = 2,
                          dropout = 0, initial_learning_rate = lr_initial, 
                          rotation = F, flipping = T, batch_normalization = F, 
                          separable_conv = F, resid_connection = F, 
@@ -250,16 +261,14 @@ for (i in 1:nrow(pars)) {
   
   callbacks <- callback_early_stopping(patience = 10, restore_best_weights = T)
   history <- model %>%
-    fit(dataset$train$data, dataset$train$class, epochs = 50, batch_size = 32, verbose = 1,
+    fit(train, train_y, epochs = 50, batch_size = 32, verbose = 1,
         callbacks = callbacks, validation_split = .5)
-  results <- model %>% evaluate(dataset$test$data, dataset$test$class)
+  results <- model %>% evaluate(test, test_y)
   names(results) <- c("test_loss", "test_acc")
   res <- rbind(res, cbind(last(data.frame(history$metrics)),t(results)))
 }
 
-cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
-  write.csv("result12_f.csv")
-
+cbind(pars, res)
 
 ##################################
 ## run for 1(c)
@@ -273,18 +282,18 @@ for (i in 1:nrow(pars)) {
   lr_initial = pars$lr_initial[i]
   filters = pars$filter[[i]] 
   model <- build_convnet(filters_list = filters, kernel_size = c(3, 3), pool_size = c(2, 2),
-                         input_shape = dim(dataset$train$data)[-1], output_class = 1,
+                         input_shape = dim(train)[-1], output_class = 2,
                          dropout = 0, initial_learning_rate = lr_initial, 
                          rotation = F, flipping = F, batch_normalization = F, 
-                         separable_conv = F, resid_connection = T, 
+                         separable_conv = T, resid_connection = F, 
                          printmodel = T)
   
   
   callbacks <- callback_early_stopping(patience = 10, restore_best_weights = T)
   history <- model %>%
-    fit(dataset$train$data, dataset$train$class, epochs = 50, batch_size = 32, verbose = 1,
+    fit(train, train_y, epochs = 50, batch_size = 32, verbose = 1,
         callbacks = callbacks, validation_split = .5)
-  results <- model %>% evaluate(dataset$test$data, dataset$test$class)
+  results <- model %>% evaluate(test, test_y)
   names(results) <- c("test_loss", "test_acc")
   res <- rbind(res, cbind(last(data.frame(history$metrics)),t(results)))
 }
@@ -292,15 +301,15 @@ for (i in 1:nrow(pars)) {
 cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
   write.csv("result13_T.csv")
 
-
 ####################################
 ## run for 1(d)
 ####################################
 
-model <- build_convnet(filters_list = c(8,8,16,16,32,32,64,64,128,128), kernel_size = c(3, 3), pool_size = c(2, 2),
-                       input_shape = dim(dataset$train$data)[-1], output_class = 1,
+### best model with filter sequence 8*2,16*2,32*2,64*2,128*2, and consider batch normalization.
+model <- build_convnet(filters_list = c(16,32,64,128,256), kernel_size = c(3, 3), pool_size = c(2, 2),
+                       input_shape = dim(train)[-1], output_class = 2,
                        dropout = 0, initial_learning_rate = 0.001, 
-                       rotation = T, flipping = F, batch_normalization = F, 
+                       rotation = F, flipping = F, batch_normalization = T, 
                        separable_conv = F, resid_connection = F, 
                        printmodel = T)
 
@@ -325,8 +334,8 @@ display_image_tensor <- function(x,..., max = 255,
     plot(..., interpolate = FALSE)
 }
 
-img_path <-'C:/Users/Matt/Desktop/STAT 590B/hw3/devnagari_reduced'
-img_tensor <- img_path |> tf_read_image(resize = c(256, 256))
+img_path <-"D://iowa state//STAT590s3//hw3//resize//bangla//p_ben_0001.png"
+img_tensor <- img_path |> tf_read_image(resize = c(1000, 1000))
 display_image_tensor(img_tensor)
 
 
@@ -374,14 +383,13 @@ for (layer_name in names(layer_outputs)) {
   title(main = layer_name, outer = TRUE)
 }
 
-
 ####################################
 ## run for 1(e)
 ####################################
 
 ### Loading the Xception network with pretrained weights
 model <- application_xception(weights = "imagenet")
-img_path <-'C:/Users/Matt/Desktop/STAT 590B/hw3/devnagari_reduced'
+img_path <-"D://iowa state//STAT590s3//hw3//resize//bangla//p_ben_0001.png"
 img_tensor <- img_path |> tf_read_image(resize = c(299, 299))
 preprocessed_img <- img_tensor[tf$newaxis, , , ] %>% xception_preprocess_input()
 preds <- predict(model, preprocessed_img)
