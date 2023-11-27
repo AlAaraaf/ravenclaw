@@ -1,5 +1,3 @@
-################ Q1 ###############
-
 # Load the necessary libraries
 library(keras)
 library(reticulate)
@@ -8,6 +6,7 @@ library(tiff)
 library(magick)
 library(imager)
 library(jpeg)
+library(png)
 library(tidyverse)
 library(fs)
 library(tfautograph)
@@ -15,7 +14,7 @@ image_size <- 1000
 splice_size <- 150
 splice_number <- 10
 
-
+##########------------q1---------------------------#######
 # Define your data directory
 data_dir <- "devnagari-bangla/"
 class <- c("bangla", "devnagari")
@@ -162,14 +161,14 @@ build_convnet <- function(filters_list, kernel_size = c(3, 3), pool_size = c(2, 
     hidden <- layer_activation_relu()(hidden)
   } else hidden <- layer_dense(units = 32, activation = "relu")(hidden)
   
-  output <- layer_dense(units = output_class, activation = "softmax")(hidden)
+  output <- layer_dense(units = output_class, activation = "sigmoid")(hidden)
   model <- keras_model(inputs = input, outputs = output)
   if (printmodel) summary(model, show_trainable = T)
   
   learning_rate <- learning_rate_schedule_exponential_decay(initial_learning_rate,
                                                             decay_steps = 5, decay_rate = 0.9, staircase = T)
   model %>% compile(
-    loss = loss_categorical_crossentropy(),
+    loss = loss_binary_crossentropy(),
     optimizer = optimizer_adam(learning_rate = learning_rate),
     metrics = list("acc")
   )
@@ -180,9 +179,10 @@ build_convnet <- function(filters_list, kernel_size = c(3, 3), pool_size = c(2, 
 ##################################
 ## run for 1(a)
 ####################################
-filter_list <- list(2 ^ (3:4), 2 ^ (4:5),
-                    2 ^ (3:5), 2 ^ (4:6), 2 ^ (3:6), 2 ^ (4:7),
-                    2 ^ (5:8), 2 ^ (3:7), 2 ^ (3:8))
+
+filter_list <- list(2 ^ (3:4), 2 ^ (4:5) ,2 ^ (3:5), 
+                    2 ^ (4:6),2 ^ (3:6), 2 ^ (4:7) , 
+                    2 ^ (4:8),2 ^ (5:9), 2 ^ (4:9))
 
 pars <- expand.grid(lr_initial = 0.001, filter = filter_list)
 res <- NULL
@@ -191,7 +191,7 @@ for (i in 1:nrow(pars)) {
   filters = pars$filter[[i]]
   
   model <- build_convnet(filters_list = filters, kernel_size = c(3, 3), pool_size = c(2, 2),
-                         input_shape = dim(train)[-1], output_class = 2,
+                         input_shape = dim(train)[-1], output_class = 1,
                          dropout = 0, initial_learning_rate = lr_initial, 
                          rotation = F, flipping = F, batch_normalization = F, 
                          separable_conv = F, resid_connection = F, 
@@ -200,21 +200,23 @@ for (i in 1:nrow(pars)) {
   
   callbacks <- callback_early_stopping(patience = 10, restore_best_weights = T)
   history <- model %>%
-    fit(train, train_y, epochs = 50, batch_size = 32, verbose = 1,
+    fit(train, train_y[, 1, drop = F], epochs = 50, batch_size = 32, verbose = 1,
         callbacks = callbacks, validation_split = .5)
-  results <- model %>% evaluate(test, test_y)
+  results <- model %>% evaluate(test, test_y[, 1, drop = F])
   names(results) <- c("test_loss", "test_acc")
   res <- rbind(res, cbind(last(data.frame(history$metrics)),t(results)))
 }
 
-cbind(pars, res)
+cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
+  write.csv("result11.csv")
 
 
 ##################################
 ## run for 1(b)_rotation
 ####################################
-filter_list <- list( 2 ^ (4:5), 2 ^ (4:7),
-                     2 ^ (5:8), 2 ^ (3:7))
+filter_list <- list(2 ^ (3:5), 
+                    2 ^ (4:7) , 
+                    2 ^ (4:8), 2 ^ (4:9))
 
 pars <- expand.grid(lr_initial = 0.001, filter = filter_list,rotation = T)
 res <- NULL
@@ -222,7 +224,7 @@ for (i in 1:nrow(pars)) {
   lr_initial = pars$lr_initial[i]
   filters = pars$filter[[i]] 
   model <- build_convnet(filters_list = filters, kernel_size = c(3, 3), pool_size = c(2, 2),
-                         input_shape = dim(train)[-1], output_class = 2,
+                         input_shape = dim(train)[-1], output_class = 1,
                          dropout = 0, initial_learning_rate = lr_initial, 
                          rotation = T, flipping = F, batch_normalization = F, 
                          separable_conv = F, resid_connection = F, 
@@ -231,20 +233,22 @@ for (i in 1:nrow(pars)) {
   
   callbacks <- callback_early_stopping(patience = 10, restore_best_weights = T)
   history <- model %>%
-    fit(train, train_y, epochs = 50, batch_size = 32, verbose = 1,
+    fit(train, train_y[, 1, drop = F], epochs = 50, batch_size = 32, verbose = 1,
         callbacks = callbacks, validation_split = .5)
-  results <- model %>% evaluate(test, test_y)
+  results <- model %>% evaluate(test, test_y[, 1, drop = F])
   names(results) <- c("test_loss", "test_acc")
   res <- rbind(res, cbind(last(data.frame(history$metrics)),t(results)))
 }
 
-cbind(pars, res) 
+cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
+  write.csv("result12_r.csv")
 
 ##################################
 ## run for 1(b)_flipping
 ####################################
-filter_list <- list( 2 ^ (4:5), 2 ^ (4:7),
-                     2 ^ (5:8), 2 ^ (3:7))
+filter_list <- list(2 ^ (3:5), 
+                    2 ^ (4:7) , 
+                    2 ^ (4:8), 2 ^ (4:9))
 
 pars <- expand.grid(lr_initial = 0.001, filter = filter_list, flipping = T)
 res <- NULL
@@ -252,7 +256,7 @@ for (i in 1:nrow(pars)) {
   lr_initial = pars$lr_initial[i]
   filters = pars$filter[[i]] 
   model <- build_convnet(filters_list = filters, kernel_size = c(3, 3), pool_size = c(2, 2),
-                         input_shape = dim(train)[-1], output_class = 2,
+                         input_shape = dim(train)[-1], output_class = 1,
                          dropout = 0, initial_learning_rate = lr_initial, 
                          rotation = F, flipping = T, batch_normalization = F, 
                          separable_conv = F, resid_connection = F, 
@@ -261,53 +265,53 @@ for (i in 1:nrow(pars)) {
   
   callbacks <- callback_early_stopping(patience = 10, restore_best_weights = T)
   history <- model %>%
-    fit(train, train_y, epochs = 50, batch_size = 32, verbose = 1,
+    fit(train, train_y[, 1, drop = F], epochs = 50, batch_size = 32, verbose = 1,
         callbacks = callbacks, validation_split = .5)
-  results <- model %>% evaluate(test, test_y)
-  names(results) <- c("test_loss", "test_acc")
-  res <- rbind(res, cbind(last(data.frame(history$metrics)),t(results)))
-}
-
-cbind(pars, res)
-
-##################################
-## run for 1(c)
-####################################
-filter_list <- list( 2 ^ (4:5), 2 ^ (4:7),
-                     2 ^ (5:8), 2 ^ (3:7))
-
-pars <- expand.grid(lr_initial = 0.001, filter = filter_list)
-res <- NULL
-for (i in 1:nrow(pars)) {
-  lr_initial = pars$lr_initial[i]
-  filters = pars$filter[[i]] 
-  model <- build_convnet(filters_list = filters, kernel_size = c(3, 3), pool_size = c(2, 2),
-                         input_shape = dim(train)[-1], output_class = 2,
-                         dropout = 0, initial_learning_rate = lr_initial, 
-                         rotation = F, flipping = F, batch_normalization = F, 
-                         separable_conv = T, resid_connection = F, 
-                         printmodel = T)
-  
-  
-  callbacks <- callback_early_stopping(patience = 10, restore_best_weights = T)
-  history <- model %>%
-    fit(train, train_y, epochs = 50, batch_size = 32, verbose = 1,
-        callbacks = callbacks, validation_split = .5)
-  results <- model %>% evaluate(test, test_y)
+  results <- model %>% evaluate(test, test_y[, 1, drop = F])
   names(results) <- c("test_loss", "test_acc")
   res <- rbind(res, cbind(last(data.frame(history$metrics)),t(results)))
 }
 
 cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
-  write.csv("result13_T.csv")
+  write.csv("result12_f.csv")
+
+##################################
+## run for 1(c)
+####################################
+filter_list <- list( 2 ^ (4:8), 2 ^ (4:9))
+
+pars <- expand.grid(lr_initial = 0.001, filter = filter_list, resid_connection =T)
+res <- NULL
+for (i in 1:nrow(pars)) {
+  lr_initial = pars$lr_initial[i]
+  filters = pars$filter[[i]] 
+  model <- build_convnet(filters_list = filters, kernel_size = c(3, 3), pool_size = c(2, 2),
+                         input_shape = dim(train)[-1], output_class = 1,
+                         dropout = 0, initial_learning_rate = lr_initial, 
+                         rotation = F, flipping = F, batch_normalization = F, 
+                         separable_conv = F, resid_connection = T, 
+                         printmodel = T)
+  
+  callbacks <- callback_early_stopping(patience = 10, restore_best_weights = T)
+  history <- model %>%
+    fit(train, train_y[, 1, drop = F], epochs = 20, batch_size = 32, verbose = 1,
+        callbacks = callbacks, validation_split = .5)
+  results <- model %>% evaluate(test, test_y[, 1, drop = F])
+  names(results) <- c("test_loss", "test_acc")
+  res <- rbind(res, cbind(last(data.frame(history$metrics)),t(results)))
+}
+
+cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
+  write.csv("result13_r.csv")
+
 
 ####################################
 ## run for 1(d)
 ####################################
 
-### best model with filter sequence 8*2,16*2,32*2,64*2,128*2, and consider batch normalization.
+### best model with filter sequence c(16, 32, 64, 128, 256), and consider batch normalization.
 model <- build_convnet(filters_list = c(16,32,64,128,256), kernel_size = c(3, 3), pool_size = c(2, 2),
-                       input_shape = dim(train)[-1], output_class = 2,
+                       input_shape = dim(train)[-1], output_class = 1,
                        dropout = 0, initial_learning_rate = 0.001, 
                        rotation = F, flipping = F, batch_normalization = T, 
                        separable_conv = F, resid_connection = F, 
@@ -334,8 +338,12 @@ display_image_tensor <- function(x,..., max = 255,
     plot(..., interpolate = FALSE)
 }
 
-img_path <-"D://iowa state//STAT590s3//hw3//resize//bangla//p_ben_0001.png"
-img_tensor <- img_path |> tf_read_image(resize = c(1000, 1000))
+
+img <- train[1,,,]
+img <- writeJPEG(img,"1e.jpeg")
+
+img_path <-"1e.jpeg"
+img_tensor <- img_path |> tf_read_image(resize = c(150, 150))
 display_image_tensor(img_tensor)
 
 
@@ -370,8 +378,6 @@ plot_activations <- function(x, ...) {
 par(mfrow=c(1,1), mar = rep(0.01,4))
 plot_activations(first_layer_activation[, , , 5])
 
-
-
 ###Visualizing every channel in every intermediate activation
 for (layer_name in names(layer_outputs)) {
   layer_output <- activations[[layer_name]]
@@ -388,30 +394,61 @@ for (layer_name in names(layer_outputs)) {
 ####################################
 
 ### Loading the Xception network with pretrained weights
-model <- application_xception(weights = "imagenet")
-img_path <-"D://iowa state//STAT590s3//hw3//resize//bangla//p_ben_0001.png"
-img_tensor <- img_path |> tf_read_image(resize = c(299, 299))
-preprocessed_img <- img_tensor[tf$newaxis, , , ] %>% xception_preprocess_input()
+
+img_path <-"1e.jpeg"
+img_tensor <- img_path |> tf_read_image(resize = c(150, 150))
+preprocessed_img <- (img_tensor[tf$newaxis, , , ] /255 ) * 2 - 1
 preds <- predict(model, preprocessed_img)
 str(preds)
 imagenet_decode_predictions(preds, top=3)[[1]]
 
+layer_names <- sapply(model$layers, `[[`, "name")
+layer_name <- "max_pooling2d_4"
+idx <- match(layer_name, layer_names)
+
+model_prev_lastlayer <- get_layer(model, layer_name)
+model_prev <- keras_model(model$inputs, model_prev_lastlayer$output)
+
+x <- model_next_input <- layer_input(batch_shape = model_prev_lastlayer$output$shape)
+for (. in layer_names[-(1:idx)]) x <- get_layer(model, .)(x)
+model_next <- keras_model(model_next_input, x)
 
 
-################ Q2 ###############
+with (tf$GradientTape() %as% tape, {
+  model_prev_output <- model_prev(preprocessed_img)
+  tape$watch(model_prev_output)
+  ## Compute activations of the last conv layer and make the tape watch it.
+  preds <- model_next(model_prev_output)
+  top_pred_index <- tf$argmax(preds[1, ])
+  top_class_channel <- preds[, top_pred_index, style = "python"]
+  ## Retrieve the activation channel corresponding to the top predicted class.
+})
+grads <- tape$gradient(top_class_channel, model_prev_output)
 
-# Load the necessary libraries
-library(keras)
-library(reticulate)
-library(tensorflow)
-library(tiff)
-library(magick)
-library(imager)
-library(jpeg)
-library(tidyverse)
-library(fs)
-library(tfautograph)
+pooled_grads <- mean(grads, axis = 1:3, keepdims = TRUE)
 
+
+
+heatmap <-
+  ## Multiply each channel in output of last convolutional layer by importance of this channel.
+  (model_prev_output * pooled_grads) |>
+  ## grads and last_conv_layer_output have same shape, (1, 10, 10, 2048) and pooled_grads has shape (1, 1, 1, 2048).
+  mean(axis = -1) %>% ## Shape: (1, 10, 10). Channel-wise mean of the resulting feature map is heatmap
+  ## of class activation. Note use of %>%, not |>
+  .[1, , ] ## Drop batch dim; output shape: (10, 10)
+par(mar = c(0, 0, 0, 0))
+plot_activations(heatmap)
+
+
+pal <- hcl.colors(256, palette = "Spectral", alpha = .4, rev = TRUE)
+heatmap <- as.array(heatmap)
+heatmap[] <- pal[cut(heatmap, 256)]
+heatmap <- as.raster(heatmap)
+img <- tf_read_image(img_path, resize = NULL) ## Load the original image, without resizing this time.
+display_image_tensor(img)
+rasterImage(heatmap, 0, 0, ncol(img), nrow(img), interpolate = FALSE)
+
+#####-----------------------------2(a)-----------------------------###
 
 #### wrapped functions ####
 read.in.all.file <- function(folders, class){
@@ -485,7 +522,7 @@ make.dataset <- function(filelist, p=100, img_width, img_height, imagetype){
   return(dataset)
 }
 
-#####-----------------------------2(a)-----------------------------###
+
 # Define your data directory
 data_dir_2 <- "Pomegranate/"
 class_2 <- c("disease", "health")
@@ -511,60 +548,7 @@ dataset_2 <- make.dataset(filelist_2, p, img_width = 256, img_height = 256,image
 
 dataset <- dataset_2
 
-########### Model Architecture
-build_convnet <- function(filters_list, kernel_size = c(3, 3), pool_size = c(2, 2),
-                          input_shape, output_class, dropout = 0, initial_learning_rate = 0.1,
-                          rotation = F, flipping = F, batch_normalization = F, separable_conv = F, resid_connection = F,
-                          printmodel = T) {
-  k_clear_session()
-  layer_conv <- ifelse(separable_conv, layer_separable_conv_2d, layer_conv_2d)
-  
-  
-  hidden <- input <- layer_input(shape = input_shape)
-  
-  if (rotation) {
-    hidden <- layer_random_rotation(factor = 0.2)(hidden)
-  }
-  if (flipping) {
-    hidden <- layer_random_flip(mode = "horizontal")(hidden)
-    #hidden <- tf.keras.layers.RandomFlip("vertical")(hidden)
-  }
-  for (filter in filters_list) {
-    resid <- hidden
-    if (batch_normalization) {
-      hidden <- layer_conv(filters = filter, kernel_size = kernel_size, padding = "same", use_bias = F)(hidden)
-      hidden <- layer_batch_normalization()(hidden)
-      hidden <- layer_activation_relu()(hidden)
-    } else hidden <- layer_conv(filters = filter, kernel_size = kernel_size, padding = "same", activation = "relu")(hidden)
-    hidden <- layer_max_pooling_2d(pool_size = pool_size, padding = "same")(hidden)
-    
-    if (resid_connection) {
-      resid <- layer_conv_2d(filters = filter, kernel_size = c(1, 1), padding = "same", strides = pool_size)(resid)
-      hidden <- layer_add(hidden, resid)
-    }
-    if (dropout > 0) hidden <- layer_dropout(rate = dropout)(hidden)
-  }
-  hidden <- layer_flatten()(hidden)
-  
-  if (batch_normalization) {
-    hidden <- layer_dense(units = 32, use_bias = F)(hidden)
-    hidden <- layer_batch_normalization()(hidden)
-    hidden <- layer_activation_relu()(hidden)
-  } else hidden <- layer_dense(units = 32, activation = "relu")(hidden)
-  
-  output <- layer_dense(units = output_class, activation = "sigmoid")(hidden)
-  model <- keras_model(inputs = input, outputs = output)
-  if (printmodel) summary(model, show_trainable = T)
-  
-  learning_rate <- learning_rate_schedule_exponential_decay(initial_learning_rate,
-                                                            decay_steps = 5, decay_rate = 0.9, staircase = T)
-  model %>% compile(
-    loss = loss_binary_crossentropy(),
-    optimizer = optimizer_adam(learning_rate = learning_rate),
-    metrics = list("acc")
-  )
-  model
-}
+
 
 ##################################
 ## run for 2(a)
@@ -780,15 +764,62 @@ for (layer_name in names(layer_outputs)) {
 ## run for 2(e)
 ####################################
 
-### Loading the Xception network with pretrained weights
-model <- application_xception(weights = "imagenet")
 img_path <-"D://iowa state//STAT590s3//hw3//Pomegranate//disease//0020_0001.JPG"
-img_tensor <- img_path |> tf_read_image(resize = c(299, 299))
-preprocessed_img <- img_tensor[tf$newaxis, , , ] %>% xception_preprocess_input()
+img_tensor <- img_path |> tf_read_image(resize = c(256, 256))
+preprocessed_img <- (img_tensor[tf$newaxis, , , ] / 255) * 2 - 1
 preds <- predict(model, preprocessed_img)
 str(preds)
 imagenet_decode_predictions(preds, top=3)[[1]]
 
+
+layer_names <- sapply(model$layers, `[[`, "name")
+layer_name <- "max_pooling2d_1"
+idx <- match(layer_name, layer_names)
+
+model_prev_lastlayer <- get_layer(model, layer_name)
+model_prev <- keras_model(model$inputs, model_prev_lastlayer$output)
+
+x <- model_next_input <- layer_input(batch_shape = model_prev_lastlayer$output$shape)
+for (. in layer_names[-(1:idx)]) x <- get_layer(model, .)(x)
+model_next <- keras_model(model_next_input, x)
+
+
+with (tf$GradientTape() %as% tape, {
+  model_prev_output <- model_prev(preprocessed_img)
+  tape$watch(model_prev_output)
+  ## Compute activations of the last conv layer and make the tape watch it.
+  preds <- model_next(model_prev_output)
+  top_pred_index <- tf$argmax(preds[1, ])
+  top_class_channel <- preds[, top_pred_index, style = "python"]
+  ## Retrieve the activation channel corresponding to the top predicted class.
+})
+
+grads <- tape$gradient(top_class_channel, model_prev_output)
+
+pooled_grads <- mean(grads, axis = c(2, 1, 3), keepdims = TRUE)
+
+
+heatmap <-
+  ## Multiply each channel in output of last convolutional layer by importance of this channel.
+  (model_prev_output * pooled_grads) |>
+  ## grads and last_conv_layer_output have same shape, (1, 10, 10, 2048) and pooled_grads has shape (1, 1, 1, 2048).
+  mean(axis = -1) %>% ## Shape: (1, 10, 10). Channel-wise mean of the resulting feature map is heatmap
+  ## of class activation. Note use of %>%, not |>
+  .[1, , ] ## Drop batch dim; output shape: (10, 10)
+par(mar = c(0, 0, 0, 0))
+plot_activations(heatmap)
+
+
+pal <- hcl.colors(256, palette = "Spectral", alpha = .4, rev = TRUE)
+heatmap <- as.array(heatmap)
+heatmap[] <- pal[cut(heatmap, 256)]
+heatmap <- as.raster(heatmap)
+img <- tf_read_image(img_path, resize = NULL) ## Load the original image, without resizing this time.
+display_image_tensor(img)
+rasterImage(heatmap, 0, 0, ncol(img), nrow(img), interpolate = FALSE)
+## Superimpose the heatmap over the original image, with the heatmap at 40% opacity. We pass ncol(img)
+## and nrow(img) so that the heatmap, which has fewer pixels, is drawn to match the size of the original
+#
 
 
 ################ Q3 ###############
@@ -972,7 +1003,7 @@ y_lung_tmp <- readRDS(y_lung_path)
 y_air_tmp <- readRDS(y_air_path)
 
 depth <- dim(x_tmp)[1]
-slices <- sample(1:depth, size = n_sample_each, replace = FALSE)  # make replace = TRUE if n_sample_each > min(depth) = 265
+slices <- sample(1:depth, size = n_sample_each)
 
 x27[1:n_sample_each,,] <- x_tmp[slices,,]
 y27_lung[1:n_sample_each,,] <- y_lung_tmp[slices,,]
