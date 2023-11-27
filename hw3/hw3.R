@@ -297,7 +297,7 @@ cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
 ## run for 1(d)
 ####################################
 
-model <- build_convnet(filters_list = c(16,32), kernel_size = c(3, 3), pool_size = c(2, 2),
+model <- build_convnet(filters_list = c(8,8,16,16,32,32,64,64,128,128), kernel_size = c(3, 3), pool_size = c(2, 2),
                        input_shape = dim(dataset$train$data)[-1], output_class = 1,
                        dropout = 0, initial_learning_rate = 0.001, 
                        rotation = T, flipping = F, batch_normalization = F, 
@@ -325,7 +325,7 @@ display_image_tensor <- function(x,..., max = 255,
     plot(..., interpolate = FALSE)
 }
 
-img_path <-"D://iowa state//STAT590s3//hw3//Pomegranate//disease//0020_0001.JPG"
+img_path <-'C:/Users/Matt/Desktop/STAT 590B/hw3/devnagari_reduced'
 img_tensor <- img_path |> tf_read_image(resize = c(256, 256))
 display_image_tensor(img_tensor)
 
@@ -381,7 +381,7 @@ for (layer_name in names(layer_outputs)) {
 
 ### Loading the Xception network with pretrained weights
 model <- application_xception(weights = "imagenet")
-img_path <-"D://iowa state//STAT590s3//hw3//Pomegranate//disease//0020_0001.JPG"
+img_path <-'C:/Users/Matt/Desktop/STAT 590B/hw3/devnagari_reduced'
 img_tensor <- img_path |> tf_read_image(resize = c(299, 299))
 preprocessed_img <- img_tensor[tf$newaxis, , , ] %>% xception_preprocess_input()
 preds <- predict(model, preprocessed_img)
