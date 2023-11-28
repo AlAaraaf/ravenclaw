@@ -15,6 +15,163 @@ splice_size <- 150
 splice_number <- 10
 
 ##########------------q1---------------------------#######
+
+# preliminary test
+make.dataset0 <- function(folder, classlist, size, sample_size, readfunc){
+  trainset = list()
+  testset = list()
+  trainset$data = array(0, dim = c(sample_size$train, size[1],size[2], 3))
+  testset$data = array(0, dim = c(sample_size$test, size[1], size[2], 3))
+  trainset$class = c()
+  testset$class = c()
+  
+  filelink = c()
+  dataclass = c()
+  train_id = sample(1:(sample_size$train + sample_size$test), sample_size$train, replace = F)
+  
+  # get data links
+  for (i in 1:length(classlist)){
+    
+    current_class = classlist[i]
+    current_folder = paste(folder, current_class, '/', sep = '')
+    filelist = list.files(current_folder, full.names = T)
+    cur_data = sample(filelist, as.integer(0.5*(sample_size$train + sample_size$test)))
+    filelink = c(filelink, cur_data)
+    dataclass = c(dataclass, rep((i-1), length(cur_data)))
+  }
+  
+  datasource = data.frame(filedir = filelink, class = dataclass)
+  datasource = datasource[sample(dim(datasource)[1], dim(datasource)[1]),]
+  train_file = datasource[train_id,]
+  test_file = datasource[-train_id,]
+  
+  # get data
+  cat("get train data: ")
+  for (i in 1:dim(train_file)[1]){
+    current_file = train_file[i,]
+    
+    current_img <- readfunc(current_file$filedir)
+    imgsize = as.integer(size)
+    current_img <- tf$keras$preprocessing$image$smart_resize(current_img, imgsize)
+    trainset$data[i,,,] <- current_img
+    
+    cat(i ,' ')
+  }
+  cat('\n')
+  trainset$class = train_file$class
+  
+  cat('get test data: ')
+  for (i in 1:dim(test_file)[1]){
+    current_file = test_file[i,]
+    current_img <- readfunc(current_file$filedir)
+    imgsize = as.integer(size)
+    current_img <- tf$keras$preprocessing$image$smart_resize(current_img, imgsize)
+    testset$data[i,,,] <- current_img
+    
+    cat(i, ' ')
+  }
+  cat('\n')
+  testset$class = test_file$class
+  
+  
+  dataset = list()
+  dataset$train <-trainset
+  dataset$test <- testset
+  
+  return(dataset)
+}
+
+build_cnn_model <- function(filter_list, img_shape = c(224, 224), dropout = 0.5){
+  k_clear_session()
+  model <- keras_model_sequential()
+  model %>%
+    layer_resizing(height = img_shape[1], width = img_shape[2])
+  for (i in 1:length(filter_list)){
+    model %>% 
+      layer_conv_2d(filters = filter_list[i], kernel_size = 3, activation = 'relu') %>% 
+      layer_max_pooling_2d(pool_size = 2)
+  }
+  model %>% 
+    layer_dropout(rate = dropout) %>% 
+    layer_flatten() %>%
+    layer_dense(1, activation = 'sigmoid')
+  return(model)
+}
+
+##### get data #####
+folder = './data1/'
+classlist = c('bangla', 'devnagari')
+size = c(1000, 1000)
+sample_size = list()
+sample_size$train = 300
+sample_size$test = 10
+dataset <- make.dataset0(folder, classlist, size, sample_size, readTIFF)
+
+train_id = sample(dim(dataset$train$data)[1])
+dataset$train$data <- dataset$train$data[train_id,,,]
+dataset$train$class <- dataset$train$class[train_id]
+
+##### model train #####
+checkpoint_folder = './checkpoint/'
+historys = list()
+dropout_rate = 0
+lr_list = c(0.01, 0.001)
+epoch_list = c(100, 100)
+batch_list = c(256, 256)
+
+train_shape = c(224,224)
+
+filter_list <- list(2 ^ (3:4), 2 ^ (4:5),
+                    2 ^ (3:5), 2 ^ (4:6), 2 ^ (3:6), 2 ^ (4:7),
+                    2 ^ (5:8), 2 ^ (3:7), 2 ^ (3:8))
+pool_list = c(T,T,T,T,F)
+
+metric_record = c()
+
+for (i in 1:length(lr_list)){
+  for (j in 1:length(filter_list)){
+    lr = lr_list[i]
+    filter = filter_list[[j]]
+    
+    model_name = paste(checkpoint_folder, 'data1_', lr, '_filterid_', j, sep = '')
+    cat(model_name, '\n')
+    model_cp <- keras$callbacks$ModelCheckpoint(filepath = model_name,
+                                                save_weights_only = T,
+                                                save_best_only = T,
+                                                monitor = 'val_accuracy',
+                                                mode = 'max')
+    model_es <- keras$callbacks$EarlyStopping(monitor = 'val_loss',
+                                              mode = 'min',
+                                              patience = 10,
+                                              min_delta=0.0001,
+                                              restore_best_weights = TRUE)
+    
+    model <- build_cnn_model(filter, train_shape, dropout = dropout_rate)
+    model %>% keras::compile(optimizer = optimizer_rmsprop(learning_rate = lr),
+                             loss = "binary_crossentropy",
+                             metrics =  list("accuracy"))
+    
+    current_history <- model |>
+      fit(x = dataset$train$data, 
+          y = dataset$train$class,
+          epochs = epoch_list[i], batch_size = batch_list[i], validation_split = 0.5,
+          callbacks = list(model_cp, model_es))
+    
+    
+    val_acc = max(current_history$metrics$val_accuracy)
+    train_acc = max(current_history$metrics$accuracy)
+    current_record = c(lr, j, val_acc, train_acc)
+    metric_record = rbind(metric_record, current_record)
+    tf$keras$backend$clear_session()
+    
+    cat(current_record, '\n------------------------------------------\n')
+    record_list = data.frame(metric_record)
+    colnames(record_list) <- c('lr', 'filter', 'val_acc','acc')
+  }
+}
+
+
+##### q1a #####
 # Define your data directory
 data_dir <- "devnagari-bangla/"
 class <- c("bangla", "devnagari")
@@ -120,7 +277,7 @@ train[1:dim(train)[1],,,] <- train[shuffle,,,]
 rm(shuffle)
 
 
-########### Model Architecture
+##### Model Architecture ######
 build_convnet <- function(filters_list, kernel_size = c(3, 3), pool_size = c(2, 2),
                           input_shape, output_class, dropout = 0, initial_learning_rate = 0.1,
                           rotation = F, flipping = F, batch_normalization = F, separable_conv = F, resid_connection = F,
@@ -176,9 +333,7 @@ build_convnet <- function(filters_list, kernel_size = c(3, 3), pool_size = c(2, 
 }
 
 
-##################################
-## run for 1(a)
-####################################
+##### run for 1(a) ######
 
 filter_list <- list(2 ^ (3:4), 2 ^ (4:5) ,2 ^ (3:5), 
                     2 ^ (4:6),2 ^ (3:6), 2 ^ (4:7) , 
@@ -211,9 +366,7 @@ cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
   write.csv("result11.csv")
 
 
-##################################
-## run for 1(b)_rotation
-####################################
+##### run for 1(b)_rotation #####
 filter_list <- list(2 ^ (3:5), 
                     2 ^ (4:7) , 
                     2 ^ (4:8), 2 ^ (4:9))
@@ -243,9 +396,8 @@ for (i in 1:nrow(pars)) {
 cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
   write.csv("result12_r.csv")
 
-##################################
-## run for 1(b)_flipping
-####################################
+##### run for 1(b)_flipping #####
+
 filter_list <- list(2 ^ (3:5), 
                     2 ^ (4:7) , 
                     2 ^ (4:8), 2 ^ (4:9))
@@ -275,9 +427,8 @@ for (i in 1:nrow(pars)) {
 cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
   write.csv("result12_f.csv")
 
-##################################
-## run for 1(c)
-####################################
+##### run for 1(c) #####
+
 filter_list <- list( 2 ^ (4:8), 2 ^ (4:9))
 
 pars <- expand.grid(lr_initial = 0.001, filter = filter_list, resid_connection =T)
@@ -305,9 +456,7 @@ cbind(pars, res) %>% mutate(filter = as.character(filter)) %>%
   write.csv("result13_r.csv")
 
 
-####################################
-## run for 1(d)
-####################################
+##### run for 1(d) #####
 
 ### best model with filter sequence c(16, 32, 64, 128, 256), and consider batch normalization.
 model <- build_convnet(filters_list = c(16,32,64,128,256), kernel_size = c(3, 3), pool_size = c(2, 2),
@@ -389,9 +538,7 @@ for (layer_name in names(layer_outputs)) {
   title(main = layer_name, outer = TRUE)
 }
 
-####################################
-## run for 1(e)
-####################################
+##### run for 1(e) #####
 
 ### Loading the Xception network with pretrained weights
 
